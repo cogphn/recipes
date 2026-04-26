@@ -1,0 +1,25 @@
+{
+  "providers": {
+    "local-lms": {
+      "baseUrl": "http://10.30.23.104:1234/v1",
+      "apiKey": "lm-studio",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "qwen/qwen3.5-2b",
+          "name": "Qwen 3.5 2B",
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 8192
+        },
+        {
+          "id": "qwen/qwen3.5-4b",
+          "name": "Qwen 3.5 4B",
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 32768
+        }
+      ]
+    }
+  }
+}
