@@ -20,6 +20,32 @@
           "maxTokens": 32768
         }
       ]
+    },
+    "ollama": {
+      "baseUrl": "http://10.30.23.104:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "qwen3.5:2b" },
+        { "id": "qwen2.5-coder:3b" }
+      ]
+    },    
+  "ollama-lh2": {
+      "baseUrl": "http://10.30.23.149:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "gemma4:e2b" }
+      ]
     }
+      
   }
 }
