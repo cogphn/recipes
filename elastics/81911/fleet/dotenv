@@ -1,0 +1,2 @@
+FLEET_SERVER_SERVICE_TOKEN=<< service token from console >> 
+STACK_VERSION=8.19.11
