@@ -1,0 +1,277 @@
+
+services:
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    volumes:
+      - ../certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        if [ x${ELASTIC_PASSWORD} == x ]; then
+          echo "Set the ELASTIC_PASSWORD environment variable in the .env file";
+          exit 1;
+        elif [ x${KIBANA_PASSWORD} == x ]; then
+          echo "Set the KIBANA_PASSWORD environment variable in the .env file";
+          exit 1;
+        fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          echo "Creating certs";
+          echo -ne \
+          "instances:\n"\
+          "  - name: es01\n"\
+          "    dns:\n"\
+          "      - es01\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: es02\n"\
+          "    dns:\n"\
+          "      - es02\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        echo "Setting file permissions"
+        chown -R root:root config/certs;
+        find . -type d -exec chmod 750 \{\} \;;
+        find . -type f -exec chmod 640 \{\} \;;
+        echo "Waiting for Elasticsearch availability";
+        until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u elastic:${ELASTIC_PASSWORD} -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "All done!";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+
+  es01:
+    depends_on:
+      setup:
+        condition: service_healthy
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    privileged: true
+    volumes:
+      - ../certs:/usr/share/elasticsearch/config/certs
+    ports:
+      - ${ES_PORT}:9200
+    environment:
+      - node.name=es01
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=es01,es02
+      - discovery.seed_hosts=es02
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE}
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  es02:
+    depends_on:
+      - es01
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    privileged: true
+    volumes:
+      - ../certs:/usr/share/elasticsearch/config/certs
+    environment:
+      - node.name=es02
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=es01,es02
+      - discovery.seed_hosts=es01
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es02/es02.key
+      - xpack.security.http.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es02/es02.key
+      - xpack.security.transport.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE}
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+  kibana:
+    depends_on:
+      es01:
+        condition: service_healthy
+      es02:
+        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    privileged: true
+    volumes:
+      - ../certs:/usr/share/kibana/config/certs
+    ports:
+      - ${KIBANA_PORT}:5601
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://es01:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY}
+      - XPACK_SECURITY_ENCRYPTIONKEY=${XPACK_SECURITY_ENCRYPTIONKEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${XPACK_REPORTING_ENCRYPTIONKEY}
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+  gitea:
+    image: gitea/gitea:1.26
+    environment:
+      - USER_UID=${USER_UID}
+      - USER_GID=${USER_GID}
+      - SSH_PORT=2000
+      - DISABLE_SSH=true
+      - DB_TYPE=mysql
+      - DB_HOST=db:3306
+      - DB_NAME=gitea
+      - DB_USER=gitea
+      - DB_PASSWD=${GITEA_MYSQL_PWD}
+    restart: always
+    volumes:
+      - ./gitea_data:/data
+    ports:
+      - "4000:3000"
+    #  - "2000:22"
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "2022:22"
+    privileged: true
+    volumes:
+      - ./gitlab_data_varlib:/var/lib/gitlab
+      - ./gitlab_data_config:/etc/gitlab
+      - ./gitlab_data_logs:/var/log/gitlab
+      #- ./gitlab_data_opt:/opt/gitlab
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    volumes:
+      - ./gitlab_runner_data_config:/etc/gitlab-runner
+      - ./gitlab_runner_data_varlib:/var/lib/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+  db:
+    image: mysql:5.7
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${GITEA_MYSQL_PWD}
+      - MYSQL_USER=gitea
+      - MYSQL_PASSWORD=${GITEA_MYSQL_PWD}
+      - MYSQL_DATABASE=gitea
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+  fleet-setup:
+    build:
+      context: ./fleet-setup
+    privileged: true
+    depends_on:
+      kibana:
+        condition: service_healthy      
+    tty: true
+    volumes:
+      - ../certs:/certs
+      - ./fleet_server_files/es_install:/opt/Elastic
+    environment:      
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - FLEET_SERVER_ELASTICSEARCH_CA=/certs/ca/ca.crt
+      - FLEET_INSECURE=true
+    command: >
+      bash -c '
+      until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/setup" | grep -q \"isInitialized\":true; do
+        echo "attempting to setup up fleet...";
+        sleep 5;
+      done;
+      echo "adding fleet outputs...";
+      until curl -X PUT "http://kibana:5601/api/fleet/outputs/fleet-default-output" -H "kbn-xsrf: true"  -H "Content-Type: application/json" -u "elastic:${ELASTIC_PASSWORD}"  -d "{ \"name\": \"default\",    \"type\": \"elasticsearch\",    \"is_default\": true,    \"is_default_monitoring\": true, \"hosts\": [\"http://es01:9200\",\"http://es02:9200\"], \"config_yaml\": \"ssl.verification_mode: none\"  }" | grep -q  \"item\"; do
+        echo "attempting to add fleet outptus...";
+        sleep 5;
+      done;
+      echo "adding fleet server hosts...";
+      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleet-server:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleet-server\"} "
+      
+      echo "creating fleet policy...";
+      curl -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" --header "Content-Type: application/json" -d "{\"name\":\"Fleet Server policy 100\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"inactivity_timeout\":1209600,\"is_protected\":false,\"has_fleet_server\":true} " ;
+
+      export FLEET_SERVER_SERVICE_TOKEN=$(curl "http://kibana:5601/api/fleet/service_tokens" -X "POST" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" ) ;
+      echo "fleet configured!";
+      echo "my work here is done";
+
+      '
+  fleet-server:
+    build:
+      context: ./devmachine
+    #depends_on:
+    # fleet-server:
+    #   condition: service_completed_successfully
+    privileged: true
+    volumes:
+      - ./devmachine/files:/root/files
+      - ../certs:/certs
+      - ./fleet_server_files/es_install:/opt/Elastic
+  client2:
+    build:
+      context: ./devmachine
+    privileged: true
+  client3:
+    build:
+      context: ./devmachine
+    privileged: true
+networks:
+  default:
+    name: elastic-stack-network
+volumes:
+  certs:
+    driver: local
+  esdata01:
+    driver: local
+  esdata02:
+    driver: local
+  kibanadata:
+    driver: local
