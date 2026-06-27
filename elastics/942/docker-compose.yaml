@@ -63,6 +63,7 @@ services:
     privileged: true
     volumes:
       - ../certs:/usr/share/elasticsearch/config/certs
+      #- ./es01data:/usr/share/elasticsearch/data
     ports:
       - ${ES_PORT}:9200
     environment:
@@ -102,6 +103,7 @@ services:
     privileged: true
     volumes:
       - ../certs:/usr/share/elasticsearch/config/certs
+      #- ./es02data:/usr/share/elasticsearch/data
     environment:
       - node.name=es02
       - cluster.name=${CLUSTER_NAME}
@@ -161,24 +163,24 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-  gitea:
-    image: gitea/gitea:1.26
-    environment:
-      - USER_UID=${USER_UID}
-      - USER_GID=${USER_GID}
-      - SSH_PORT=2000
-      - DISABLE_SSH=true
-      - DB_TYPE=mysql
-      - DB_HOST=db:3306
-      - DB_NAME=gitea
-      - DB_USER=gitea
-      - DB_PASSWD=${GITEA_MYSQL_PWD}
-    restart: always
-    volumes:
-      - ./gitea_data:/data
-    ports:
-      - "4000:3000"
-    #  - "2000:22"
+#  gitea:
+#    image: gitea/gitea:1.26
+#    environment:
+#      - USER_UID=${USER_UID}
+#      - USER_GID=${USER_GID}
+#      - SSH_PORT=2000
+#      - DISABLE_SSH=true
+#      - DB_TYPE=mysql
+#      - DB_HOST=db:3306
+#      - DB_NAME=gitea
+#      - DB_USER=gitea
+#      - DB_PASSWD=${GITEA_MYSQL_PWD}
+#    restart: always
+#    volumes:
+#      - ./gitea_data:/data
+#    ports:
+#      - "4000:3000"
+#    #  - "2000:22"
   gitlab:
     image: gitlab/gitlab-ce:latest
     ports:
@@ -186,6 +188,11 @@ services:
       - "8443:443"
       - "2022:22"
     privileged: true
+    shm_size: '256mb'
+    hostname: 'gitlab'
+    #environment:
+    #  GITLAB_OMNIBUS_CONFIG: |
+    #    external_url 'http://localhost:8080'
     volumes:
       - ./gitlab_data_varlib:/var/lib/gitlab
       - ./gitlab_data_config:/etc/gitlab
@@ -193,20 +200,21 @@ services:
       #- ./gitlab_data_opt:/opt/gitlab
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
+    ports:
+      - '81:80'
     volumes:
       - ./gitlab_runner_data_config:/etc/gitlab-runner
-      - ./gitlab_runner_data_varlib:/var/lib/gitlab-runner
       - /var/run/docker.sock:/var/run/docker.sock
-  db:
-    image: mysql:5.7
-    restart: always
-    environment:
-      - MYSQL_ROOT_PASSWORD=${GITEA_MYSQL_PWD}
-      - MYSQL_USER=gitea
-      - MYSQL_PASSWORD=${GITEA_MYSQL_PWD}
-      - MYSQL_DATABASE=gitea
-    volumes:
-      - ./mysql_data:/var/lib/mysql
+#  db:
+#    image: mysql:5.7
+#    restart: always
+#    environment:
+#      - MYSQL_ROOT_PASSWORD=${GITEA_MYSQL_PWD}
+#      - MYSQL_USER=gitea
+#      - MYSQL_PASSWORD=${GITEA_MYSQL_PWD}
+#      - MYSQL_DATABASE=gitea
+#    volumes:
+#      - ./mysql_data:/var/lib/mysql
   fleet-setup:
     build:
       context: ./fleet-setup
