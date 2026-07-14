@@ -226,7 +226,8 @@ services:
     volumes:
       - ../certs:/certs
       - ./fleet_server_files/es_install:/opt/Elastic
-    environment:      
+      - ./fleet_shared:/root/fleet_shared
+    environment:
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
       - FLEET_SERVER_ELASTICSEARCH_CA=/certs/ca/ca.crt
       - FLEET_INSECURE=true
@@ -242,28 +243,28 @@ services:
         sleep 5;
       done;
       echo "adding fleet server hosts...";
-      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleetsrv\"} "
-      
+      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleet-server:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleetsrv\"} "
+
       echo "creating fleet policy...";
       curl -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" --header "Content-Type: application/json" -d "{\"name\":\"Fleet Server policy 100\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"inactivity_timeout\":1209600,\"is_protected\":false,\"has_fleet_server\":true} " ;
 
-      export FLEET_SERVER_SERVICE_TOKEN=$(curl "http://kibana:5601/api/fleet/service_tokens" -X "POST" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" ) ;
+      curl "http://kibana:5601/api/fleet/service_tokens" -X "POST" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" ) >/root/fleet_shared/token.txt;
       echo "fleet configured!";
       echo "my work here is done";
-
       '
-  fleetsrv:
+  fleet-server:
     hostname: fleetsrv
     build:
       context: ./devmachine
     #depends_on:
-    # fleet-server:
+    # fleet-setup:
     #   condition: service_completed_successfully
     privileged: true
     volumes:
       - ./devmachine/files:/root/files
       - ../certs:/certs
       - ./fleet_server_files/es_install:/opt/Elastic
+      - ./fleet_shared:/root/fleet_shared
   client2:
     build:
       context: ./devmachine
