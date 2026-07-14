@@ -242,7 +242,7 @@ services:
         sleep 5;
       done;
       echo "adding fleet server hosts...";
-      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleet-server:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleet-server\"} "
+      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleetsrv\"} "
       
       echo "creating fleet policy...";
       curl -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" --header "Content-Type: application/json" -d "{\"name\":\"Fleet Server policy 100\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"inactivity_timeout\":1209600,\"is_protected\":false,\"has_fleet_server\":true} " ;
@@ -252,7 +252,8 @@ services:
       echo "my work here is done";
 
       '
-  fleet-server:
+  fleetsrv:
+    hostname: fleetsrv
     build:
       context: ./devmachine
     #depends_on:
