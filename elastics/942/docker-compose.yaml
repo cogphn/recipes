@@ -270,6 +270,10 @@ services:
       context: ./devmachine
     privileged: true
   client3:
+    hostname: "client3"
+    pid: "host"
+    cap_add:
+      - SYS_ADMIN
     build:
       context: ./devmachine
     privileged: true
