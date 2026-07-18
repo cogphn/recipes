@@ -228,43 +228,62 @@ services:
       - ./fleet_server_files/es_install:/opt/Elastic
       - ./fleet_shared:/root/fleet_shared
     environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
       - FLEET_SERVER_ELASTICSEARCH_CA=/certs/ca/ca.crt
       - FLEET_INSECURE=true
     command: >
       bash -c '
-      until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/setup" | grep -q \"isInitialized\":true; do
-        echo "attempting to setup up fleet...";
+      until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/setup" | grep -q "isInitialized.*true"; do
+        echo "attempting to setup fleet...";
         sleep 5;
       done;
       echo "adding fleet outputs...";
-      until curl -X PUT "http://kibana:5601/api/fleet/outputs/fleet-default-output" -H "kbn-xsrf: true"  -H "Content-Type: application/json" -u "elastic:${ELASTIC_PASSWORD}"  -d "{ \"name\": \"default\",    \"type\": \"elasticsearch\",    \"is_default\": true,    \"is_default_monitoring\": true, \"hosts\": [\"https://es01:9200\",\"https://es02:9200\"], \"config_yaml\": \"ssl.verification_mode: none\"  }" | grep -q  \"item\"; do
-        echo "attempting to add fleet outptus...";
+      until curl -s -X PUT "http://kibana:5601/api/fleet/outputs/fleet-default-output" -H "kbn-xsrf: true" -H "Content-Type: application/json" -u "elastic:${ELASTIC_PASSWORD}" -d "{\"name\": \"default\", \"type\": \"elasticsearch\", \"is_default\": true, \"is_default_monitoring\": true, \"hosts\": [\"https://es01:9200\",\"https://es02:9200\"], \"config_yaml\": \"ssl.verification_mode: none\"}" | grep -q "item"; do
+        echo "attempting to add fleet outputs...";
         sleep 5;
       done;
       echo "adding fleet server hosts...";
-      curl --request POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" --header "Content-Type: application/json" --header "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"ssl\": {\"certificate\":\"\",\"certificate_authorities\":[],\"es_certificate\":\"\",\"es_certificate_authorities\":[],\"agent_certificate\":\"\",\"agent_certificate_authorities\":[]},\"name\": \"fleetsrv\"} "
+      curl -s -X POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -H "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"name\": \"fleetsrv\"}";
 
       echo "creating fleet policy...";
-      curl -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" --header "Content-Type: application/json" -d "{\"name\":\"Fleet Server policy 100\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"inactivity_timeout\":1209600,\"is_protected\":false,\"has_fleet_server\":true} " ;
+      curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" -H "Content-Type: application/json" -d "{\"name\":\"fleet-server-policy\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"is_protected\":false,\"has_fleet_server\":true}";
 
-      curl "http://kibana:5601/api/fleet/service_tokens" -X "POST" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" ) >/root/fleet_shared/token.txt;
+      echo "generating service token...";
+      curl -s -X POST "http://kibana:5601/api/fleet/service_tokens" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" > /root/fleet_shared/token.txt;
       echo "fleet configured!";
       echo "my work here is done";
       '
   fleet-server:
     hostname: fleetsrv
-    build:
-      context: ./devmachine
-    #depends_on:
-    # fleet-setup:
-    #   condition: service_completed_successfully
+    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION}
+    ports:
+      - "8220:8220"
+    depends_on:
+      fleet-setup:
+        condition: service_completed_successfully
     privileged: true
     volumes:
-      - ./devmachine/files:/root/files
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../certs:/certs
-      - ./fleet_server_files/es_install:/opt/Elastic
       - ./fleet_shared:/root/fleet_shared
+    environment:
+      - FLEET_SERVER_ENABLE=true
+      - FLEET_SERVER_POLICY_NAME=fleet-server-policy
+      - FLEET_SERVER_ELASTICSEARCH_HOST=https://es01:9200
+      - FLEET_SERVER_ELASTICSEARCH_CA=/certs/ca/ca.crt
+      - FLEET_SERVER_PORT=8220
+      - FLEET_INSECURE=true
+    entrypoint: >
+      /bin/sh -c '
+      until [ -f /root/fleet_shared/token.txt ]; do
+        echo "Waiting for fleet setup token...";
+        sleep 2;
+      done;
+      export FLEET_SERVER_SERVICE_TOKEN=$$(cat /root/fleet_shared/token.txt);
+      echo "Starting Fleet Server with token...";
+      exec /usr/bin/tini -- /usr/share/elastic-agent/elastic-agent container
+      '
   client2:
     build:
       context: ./devmachine
@@ -274,6 +293,9 @@ services:
     pid: "host"
     cap_add:
       - SYS_ADMIN
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../certs:/certs
     build:
       context: ./devmachine
     privileged: true
