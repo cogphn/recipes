@@ -151,6 +151,7 @@ services:
       - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY}
       - XPACK_SECURITY_ENCRYPTIONKEY=${XPACK_SECURITY_ENCRYPTIONKEY}
       - XPACK_REPORTING_ENCRYPTIONKEY=${XPACK_REPORTING_ENCRYPTIONKEY}
+      - NODE_OPTIONS=--max-old-space-size=2048
     mem_limit: ${MEM_LIMIT}
     healthcheck:
       test:
@@ -161,26 +162,6 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-  gitlab:
-    image: gitlab/gitlab-ce:latest
-    ports:
-      - "8080:80"
-      - "8443:443"
-      - "2022:22"
-    privileged: true
-    shm_size: '256mb'
-    hostname: 'gitlab'
-    volumes:
-      - ./gitlab_data_varlib:/var/lib/gitlab
-      - ./gitlab_data_config:/etc/gitlab
-      - ./gitlab_data_logs:/var/log/gitlab
-  gitlab-runner:
-    image: gitlab/gitlab-runner:latest
-    ports:
-      - '81:80'
-    volumes:
-      - ./gitlab_runner_data_config:/etc/gitlab-runner
-      - /var/run/docker.sock:/var/run/docker.sock
   fleet-setup:
     build:
       context: ./fleet-setup
@@ -254,6 +235,13 @@ services:
     build:
       context: ./devmachine
     privileged: true
+    entrypoint: >
+      /bin/sh -c '
+      mkdir /home/;
+      cd /home;
+      apt-get update -qq && apt-get install -y -qq git > /dev/null;
+      git clone "https://github.com/elastic/detection-rules.git";
+      '
   client3:
     hostname: "client3"
     pid: "host"
