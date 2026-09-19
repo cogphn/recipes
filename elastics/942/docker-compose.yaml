@@ -4,6 +4,7 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     volumes:
       - ../certs:/usr/share/elasticsearch/config/certs
+      - ./credentials:/credentials
     user: "0"
     command: >
       bash -c '
@@ -47,6 +48,29 @@ services:
         until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
         echo "Setting kibana_system password";
         until curl -s -X POST --cacert config/certs/ca/ca.crt -u elastic:${ELASTIC_PASSWORD} -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "Checking/Generating API key for elastic user";
+        KEY_EXISTS=false;
+        if [ -f /credentials/elastic_api_key.txt ]; then
+          EXISTING_KEY=$$(cat /credentials/elastic_api_key.txt | tr -d "\r\n");
+          if [ -n "$$EXISTING_KEY" ] && curl -s --cacert config/certs/ca/ca.crt -H "Authorization: ApiKey $${EXISTING_KEY}" https://es01:9200/_security/_authenticate | grep -q "\"username\":\"elastic\""; then
+            echo "Valid API key already exists. Skipping generation.";
+            KEY_EXISTS=true;
+          fi;
+        fi;
+        if [ "$${KEY_EXISTS}" != "true" ]; then
+          echo "Generating new API key...";
+          RESPONSE=$$(curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/api_key -d "{\"name\":\"startup_elastic_key\"}");
+          API_KEY=$$(echo "$$RESPONSE" | sed -nE "s/.*\"encoded\":\"([^\"]+)\".*/\1/p");
+          if [ -n "$$API_KEY" ]; then
+            echo "$$API_KEY" > /credentials/elastic_api_key.txt;
+            echo "ELASTIC_API_KEY=$$API_KEY" > /credentials/elastic_api_key.env;
+            echo "KIBANA_API_KEY=$$API_KEY" >> /credentials/elastic_api_key.env;
+            chmod 644 /credentials/elastic_api_key.txt /credentials/elastic_api_key.env;
+            echo "API key generated successfully at /credentials/elastic_api_key.txt";
+          else
+            echo "Failed to generate API key: $$RESPONSE";
+          fi;
+        fi;
         echo "All done!";
       '
     healthcheck:
