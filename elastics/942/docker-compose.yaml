@@ -255,6 +255,24 @@ services:
       echo "Starting Fleet Server with token...";
       exec /usr/bin/tini -- /usr/share/elastic-agent/elastic-agent container
       '
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "2022:22"
+    privileged: true
+    volumes:
+      - ./gitlab_data_varlib:/var/lib/gitlab
+      - ./gitlab_data_config:/etc/gitlab
+      - ./gitlab_data_logs:/var/log/gitlab
+      #- ./gitlab_data_opt:/opt/gitlab
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    volumes:
+      - ./gitlab_runner_data_config:/etc/gitlab-runner
+      - ./gitlab_runner_data_varlib:/var/lib/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
   client2:
     build:
       context: ./devmachine
