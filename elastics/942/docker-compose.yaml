@@ -42,6 +42,14 @@ services:
           "      - localhost\n"\
           "    ip:\n"\
           "      - 127.0.0.1\n"\
+          "  - name: kibana\n"\
+          "    dns:\n"\
+          "      - kibana\n"\
+          "      - localhost\n"\
+          "      - ${KIBANA_EXTERNAL_HOST:-localhost}\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "      - ${KIBANA_EXTERNAL_IP:-127.0.0.1}\n"\
           > config/certs/instances.yml;
           bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
           unzip config/certs/certs.zip -d config/certs;
@@ -212,7 +220,11 @@ services:
     ports:
       - ${KIBANA_PORT}:5601
     environment:
-      - SERVERNAME=kibana
+      - SERVER_NAME=kibana
+      - SERVER_SSL_ENABLED=true
+      - SERVER_SSL_CERTIFICATE=config/certs/kibana/kibana.crt
+      - SERVER_SSL_KEY=config/certs/kibana/kibana.key
+      - SERVER_PUBLICBASEURL=https://${KIBANA_EXTERNAL_HOST:-localhost}:${KIBANA_PORT}
       - ELASTICSEARCH_HOSTS=https://es01:9200
       - ELASTICSEARCH_USERNAME=kibana_system
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
@@ -226,7 +238,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+          "test \"$(curl -s -o /dev/null -w '%{http_code}' --cacert config/certs/ca/ca.crt https://localhost:5601)\" = 302",
         ]
       interval: 10s
       timeout: 10s
@@ -250,23 +262,39 @@ services:
       - FLEET_INSECURE=true
     command: >
       bash -c '
-      until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/setup" | grep -q "isInitialized.*true"; do
+      until curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "https://kibana:5601/api/fleet/setup" | grep -q "isInitialized.*true"; do
         echo "attempting to setup fleet...";
         sleep 5;
       done;
       echo "adding fleet outputs...";
-      until curl -s -X PUT "http://kibana:5601/api/fleet/outputs/fleet-default-output" -H "kbn-xsrf: true" -H "Content-Type: application/json" -u "elastic:${ELASTIC_PASSWORD}" -d "{\"name\": \"default\", \"type\": \"elasticsearch\", \"is_default\": true, \"is_default_monitoring\": true, \"hosts\": [\"https://es01:9200\",\"https://es02:9200\"], \"config_yaml\": \"ssl.verification_mode: none\"}" | grep -q "item"; do
+      until curl -s --cacert /certs/ca/ca.crt -X PUT "https://kibana:5601/api/fleet/outputs/fleet-default-output" -H "kbn-xsrf: true" -H "Content-Type: application/json" -u "elastic:${ELASTIC_PASSWORD}" -d "{\"name\": \"default\", \"type\": \"elasticsearch\", \"is_default\": true, \"is_default_monitoring\": true, \"hosts\": [\"https://es01:9200\",\"https://es02:9200\"], \"config_yaml\": \"ssl.verification_mode: none\"}" | grep -q "item"; do
         echo "attempting to add fleet outputs...";
         sleep 5;
       done;
       echo "adding fleet server hosts...";
-      curl -s -X POST "http://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -H "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"name\": \"fleetsrv\"}";
+      curl -s --cacert /certs/ca/ca.crt -X POST "https://kibana:5601/api/fleet/fleet_server_hosts" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -H "kbn-xsrf: true" -d "{\"host_urls\": [\"https://fleetsrv:8220\"], \"is_default\": true, \"name\": \"fleetsrv\"}";
 
       echo "creating fleet policy...";
-      curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "http://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" -H "Content-Type: application/json" -d "{\"name\":\"fleet-server-policy\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"is_protected\":false,\"has_fleet_server\":true}";
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "https://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" -H "Content-Type: application/json" -d "{\"name\":\"fleet-server-policy\",\"description\":\"default generated fleet policy\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\",\"traces\"],\"is_protected\":false,\"has_fleet_server\":true}";
+
+      echo "creating windows endpoint policy...";
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" "https://kibana:5601/api/fleet/agent_policies?sys_monitoring=true" -H "Content-Type: application/json" -d "{\"id\":\"${ENDPOINT_POLICY_ID}\",\"name\":\"${ENDPOINT_POLICY_ID}\",\"description\":\"Windows hosts with Elastic Defend\",\"namespace\":\"default\",\"monitoring_enabled\":[\"logs\",\"metrics\"]}";
+
+      echo "installing endpoint and windows packages...";
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" -H "Content-Type: application/json" "https://kibana:5601/api/fleet/epm/packages/endpoint" -d "{\"force\":true}" > /dev/null;
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" -H "Content-Type: application/json" "https://kibana:5601/api/fleet/epm/packages/windows" -d "{\"force\":true}" > /dev/null;
+      EP_VER=$$(curl -s --cacert /certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" "https://kibana:5601/api/fleet/epm/packages/endpoint" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"item\"][\"version\"])");
+      WIN_VER=$$(curl -s --cacert /certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" "https://kibana:5601/api/fleet/epm/packages/windows" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"item\"][\"version\"])");
+      echo "endpoint package: $$EP_VER, windows package: $$WIN_VER";
+
+      echo "adding elastic defend integration (preset ${ENDPOINT_PRESET})...";
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" -H "Content-Type: application/json" "https://kibana:5601/api/fleet/package_policies" -d "{\"name\":\"elastic-defend\",\"namespace\":\"default\",\"policy_id\":\"${ENDPOINT_POLICY_ID}\",\"package\":{\"name\":\"endpoint\",\"version\":\"$$EP_VER\"},\"inputs\":[{\"type\":\"ENDPOINT_INTEGRATION_CONFIG\",\"enabled\":true,\"streams\":[],\"config\":{\"_config\":{\"value\":{\"type\":\"endpoint\",\"endpointConfig\":{\"preset\":\"${ENDPOINT_PRESET}\"}}}}}]}" | grep -o "\"id\":\"[^\"]*\"" | head -1;
+
+      echo "adding windows integration...";
+      curl -s --cacert /certs/ca/ca.crt -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "kbn-xsrf: true" -H "Content-Type: application/json" "https://kibana:5601/api/fleet/package_policies" -d "{\"name\":\"windows\",\"namespace\":\"default\",\"policy_id\":\"${ENDPOINT_POLICY_ID}\",\"package\":{\"name\":\"windows\",\"version\":\"$$WIN_VER\"}}" | grep -o "\"id\":\"[^\"]*\"" | head -1;
 
       echo "generating service token...";
-      curl -s -X POST "http://kibana:5601/api/fleet/service_tokens" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" > /root/fleet_shared/token.txt;
+      curl -s --cacert /certs/ca/ca.crt -X POST "https://kibana:5601/api/fleet/service_tokens" -H "kbn-xsrf: true" -u "elastic:${ELASTIC_PASSWORD}" | sed -E "s/.*\"value\":\"([^\"]+)\".*/\1/" > /root/fleet_shared/token.txt;
       echo "fleet configured!";
       echo "my work here is done";
       '
