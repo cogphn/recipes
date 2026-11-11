@@ -9,5 +9,10 @@ MEM_LIMIT=3221225472
 XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=<<32-hex>>
 XPACK_SECURITY_ENCRYPTIONKEY=<<32-hex>>
 XPACK_REPORTING_ENCRYPTIONKEY=<<32-hex>>
+KIBANA_EXTERNAL_HOST=<< host FQDN, e.g. myhost.example.lan >>
+KIBANA_EXTERNAL_IP=<< host LAN IP, e.g. 192.168.1.50 >>
+ENDPOINT_POLICY_ID=windows-endpoint-policy
+# Elastic Defend preset: DataCollection | NGAV | EDREssential | EDRComplete
+ENDPOINT_PRESET=EDRComplete
 GITEA_MYSQL_PWD=<<password>>
 GITLAB_INITIAL_PWD=<<password>>
