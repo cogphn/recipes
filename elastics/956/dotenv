@@ -1,0 +1,16 @@
+ELASTIC_PASSWORD=<<password>>
+KIBANA_PASSWORD=<<password>>
+STACK_VERSION=9.5.6
+CLUSTER_NAME=docker-cluster
+LICENSE=trial
+ES_PORT=9200
+KIBANA_PORT=5601
+MEM_LIMIT=3221225472
+XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=<< 32-char key >>
+XPACK_SECURITY_ENCRYPTIONKEY=<< 32-char key >>
+XPACK_REPORTING_ENCRYPTIONKEY=<< 32-char key >>
+KIBANA_EXTERNAL_HOST=<< hostname of system >>
+KIBANA_EXTERNAL_IP=<< lan IP of system >>
+ENDPOINT_POLICY_ID=windows-endpoint-policy
+# Elastic Defend preset: DataCollection | NGAV | EDREssential | EDRComplete
+ENDPOINT_PRESET=EDRComplete
